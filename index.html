@@ -5,7 +5,8 @@ var tmail = require('bindings')('node_tmail.node')
 window.onload = function() {
     document.write('add(3, 5) => ' + tmail.add(3, 5));
     var params = {clientId: "123456", deviceId: "456", pushToken: "fjdlsajfld", deviceType:1, appPath: "/Users/ouasahikage/code/TNIMSDK/test/",pushServiceType:1, toonType:100, apnsType:1, version: "3.7.0", feedList:["123123", "321321", "133133"] };
-    tmail.initIm(params, function(err) {});
+    console.log(tmail.add(4,5));
+    tmail.initIm(params, function(ret) {console.log(ret)})
 }
 
 </script>

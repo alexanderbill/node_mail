@@ -133,13 +133,27 @@ void callbackFail(const Nan::FunctionCallbackInfo<v8::Value>& info) {
 	info.GetReturnValue().Set(false);
 }
 
+int getInt32FromInfo(v8::Local<v8::Object> jsonObj, v8::Local<v8::String> prop) {
+	if (Nan::HasOwnProperty(jsonObj, prop).FromJust()) {
+		v8::Local<v8::Value> fooValue = Nan::Get(jsonObj, prop).ToLocalChecked();
+		return fooValue->NumberValue();
+	}
+	return -1;
+}
+
+string getStringFromInfo(v8::Local<v8::Object> jsonObj, v8::Local<v8::String> prop) {
+    if (Nan::HasOwnProperty(jsonObj, prop).FromJust()) {
+		v8::Local<v8::Value> barValue = Nan::Get(jsonObj, prop).ToLocalChecked();
+		return std::string(*Nan::Utf8String(barValue->ToString()));
+	}
+	return "";
+}
+
 CTNClientInfo unpack_CTNClientInfo(const Nan::FunctionCallbackInfo<v8::Value>& args) {
 	/*
 	clientInfo.clientId = "123456";//clientId
 	clientInfo.deviceId = "456";//deviceId
 	clientInfo.pushToken = "fjdlsajfld";//pushToken
-
-
 	clientInfo.deviceType = 1;//iOS
 	clientInfo.appPath = "/Users/ouasahikage/code/TNIMSDK/test/";
 	clientInfo.pushServiceType = 1;//ios push，android
@@ -151,19 +165,22 @@ CTNClientInfo unpack_CTNClientInfo(const Nan::FunctionCallbackInfo<v8::Value>& a
 	clientInfo.feedList.push_back("123123");
 	clientInfo.feedList.push_back("321321");
 	clientInfo.feedList.push_back("133133");
-	*/
-	Isolate* isolate = args.GetIsolate();
+    */
 	CTNClientInfo info;
-	Handle<Object> info_obj = Handle<Object>::Cast(args[0]);
-	Handle<Value> deviceType =
-		info_obj->Get(String::NewFromUtf8(isolate, "deviceType"));
-	Handle<Value> pushServiceType =
-		info_obj->Get(String::NewFromUtf8(isolate, "pushServiceType"));
-	Handle<Value> apnsType =
-		info_obj->Get(String::NewFromUtf8(isolate, "apnsType"));
-	info.apnsType = apnsType->Int32Value();
-	info.deviceType = deviceType->Int32Value();
-	info.pushServiceType = pushServiceType->Int32Value();
+	v8::Local<v8::Object> jsonObj = args[0]->ToObject();
+
+	v8::Local<v8::String> clientIdProp = Nan::New("clientId").ToLocalChecked();
+	v8::Local<v8::String> deviceIdProp = Nan::New("deviceId").ToLocalChecked();
+	v8::Local<v8::String> appPathProp = Nan::New("appPath").ToLocalChecked();
+	v8::Local<v8::String> keyPathProp = Nan::New("keyPath").ToLocalChecked();
+
+	info.apnsType = getInt32FromInfo(jsonObj, Nan::New("apnsType").ToLocalChecked());
+	info.pushServiceType = getInt32FromInfo(jsonObj, Nan::New("pushServiceType").ToLocalChecked());
+	info.deviceType = getInt32FromInfo(jsonObj, Nan::New("deviceType").ToLocalChecked());
+	info.clientId = getStringFromInfo(jsonObj, Nan::New("clientId").ToLocalChecked());
+	info.deviceId = getStringFromInfo(jsonObj, Nan::New("deviceId").ToLocalChecked());
+	info.appPath = getStringFromInfo(jsonObj, Nan::New("appPath").ToLocalChecked());
+	info.keyPath = getStringFromInfo(jsonObj, Nan::New("keyPath").ToLocalChecked());
 
 	/*Handle<Array> array =  Handle<Array>::Cast(
 	info_obj->Get(
@@ -179,8 +196,9 @@ CTNClientInfo unpack_CTNClientInfo(const Nan::FunctionCallbackInfo<v8::Value>& a
 
 void initIm(const Nan::FunctionCallbackInfo<v8::Value>& info) { //初始化imsdk
 	toonim::CTNClientInfo clientInfo = unpack_CTNClientInfo(info);
-	imsdk = toonim::initIm(clientInfo);
+	//imsdk = toonim::initIm(clientInfo);
 	gClientInfo = clientInfo;
+	info.GetReturnValue().Set(clientInfo.pushServiceType);
 }
 
 void setCallback(const Nan::FunctionCallbackInfo<v8::Value>& info) {//添加对接回调类
