@@ -1,6 +1,7 @@
 #include <nan.h>
 
 #include "CTNDBHeader.h"
+#include "CTNHttpBizApi.h"
 #include "CTNChatAPI.h"
 #include "CLog.h"
 
@@ -169,17 +170,12 @@ CTNClientInfo unpack_CTNClientInfo(const Nan::FunctionCallbackInfo<v8::Value>& a
 	CTNClientInfo info;
 	v8::Local<v8::Object> jsonObj = args[0]->ToObject();
 
-	v8::Local<v8::String> clientIdProp = Nan::New("clientId").ToLocalChecked();
-	v8::Local<v8::String> deviceIdProp = Nan::New("deviceId").ToLocalChecked();
-	v8::Local<v8::String> appPathProp = Nan::New("appPath").ToLocalChecked();
-	v8::Local<v8::String> keyPathProp = Nan::New("keyPath").ToLocalChecked();
-
 	info.apnsType = getInt32FromInfo(jsonObj, Nan::New("apnsType").ToLocalChecked());
 	info.pushServiceType = getInt32FromInfo(jsonObj, Nan::New("pushServiceType").ToLocalChecked());
 	info.deviceType = getInt32FromInfo(jsonObj, Nan::New("deviceType").ToLocalChecked());
 	info.clientId = getStringFromInfo(jsonObj, Nan::New("clientId").ToLocalChecked());
 	info.deviceId = getStringFromInfo(jsonObj, Nan::New("deviceId").ToLocalChecked());
-	info.appPath = getStringFromInfo(jsonObj, Nan::New("appPath").ToLocalChecked());
+	info.appPath = "C:\Users\Administrator\AppData\Roaming\temail\000000\tmail"; //getStringFromInfo(jsonObj, Nan::New("appPath").ToLocalChecked());
 	info.keyPath = getStringFromInfo(jsonObj, Nan::New("keyPath").ToLocalChecked());
 
 	/*Handle<Array> array =  Handle<Array>::Cast(
@@ -194,19 +190,21 @@ CTNClientInfo unpack_CTNClientInfo(const Nan::FunctionCallbackInfo<v8::Value>& a
 	return info;
 }
 
-void initIm(const Nan::FunctionCallbackInfo<v8::Value>& info) { //初始化imsdk
-	toonim::CTNClientInfo clientInfo = unpack_CTNClientInfo(info);
-	//imsdk = toonim::initIm(clientInfo);
-	gClientInfo = clientInfo;
-	info.GetReturnValue().Set(clientInfo.pushServiceType);
-}
-
 void setCallback(const Nan::FunctionCallbackInfo<v8::Value>& info) {//添加对接回调类
 	if (callbackImpl == nullptr) {
 		callbackImpl = new CTNImsdkCallbackImpl(info);
 	}
-
 	imsdk->setCallback(callbackImpl);
+}
+
+void initIm(const Nan::FunctionCallbackInfo<v8::Value>& info) { //初始化imsdk
+	toonim::appendHttpRouter("api.groupchat.systoon.com", "http://t.email");
+	toonim::appendHttpRouter("api.im.systoon.com", "http://124.251.118.82:10001");
+	toonim::appendHttpRouter("api.tmail.systoon.com", "http://t.email");
+	gClientInfo = unpack_CTNClientInfo(info);
+	imsdk = toonim::initIm(gClientInfo);
+	setCallback(info);
+	info.GetReturnValue().Set(Nan::New<String>(gClientInfo.appPath).ToLocalChecked());
 }
 
 void addNoticeFilter(const Nan::FunctionCallbackInfo<v8::Value>& info) {//添加过滤通知
@@ -218,13 +216,11 @@ void addNoticeFilter(const Nan::FunctionCallbackInfo<v8::Value>& info) {//添加过
 
 void addHostInfo(const Nan::FunctionCallbackInfo<v8::Value>& info) {//添加服务器地址
 	bool isSSL = false;
-
 	if (!isSSL) {
 		if (imsdk == nullptr) {
 			TNMPLOG("addHost imsdk is null!!!!");
 			return;
 		}
-
 		imsdk->addHostInfo("120.111.122.1", 8080, isSSL);
 	}
 }
@@ -233,16 +229,19 @@ void login(const Nan::FunctionCallbackInfo<v8::Value>& info) {//登录
 	gClientInfo.username = "13777777777";
 
 	if (imsdk == nullptr) {
+		info.GetReturnValue().Set(Nan::New<String>("login imsdk is null!!!!").ToLocalChecked());
 		TNMPLOG("login imsdk is null!!!!");
 		return;
 	}
 
 	if (!gClientInfo.isValid()) {
+		info.GetReturnValue().Set(Nan::New<String>("_clientInfo is invalid").ToLocalChecked());
 		TNMPLOG("_clientInfo is invalid,don't connect:" << gClientInfo.clientId << " myfeed size:" << gClientInfo.feedList.size());
 		return;
 	}
 
 	imsdk->login(gClientInfo.username.c_str());
+	info.GetReturnValue().Set(Nan::New<String>(gClientInfo.username).ToLocalChecked());
 }
 
 void sendMessage(const Nan::FunctionCallbackInfo<v8::Value>& info) {//发送消息
