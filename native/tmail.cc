@@ -1,21 +1,32 @@
 #include <nan.h>
 
+#include "CTNChatAPI.h"
+#include "CTNDBAPI.h"
 #include "CTNDBHeader.h"
 #include "CTNHttpBizApi.h"
-#include "CTNChatAPI.h"
 #include "CLog.h"
+#include <mutex>
 
 using namespace toonim;
 using namespace std;
 using namespace v8;
 
+struct ShareData
+{
+    Isolate * isolate;
+    Persistent<Function> js_callback;
+};
+
+
+static std::mutex eventSyncMutex;
+
 class CTNImsdkCallbackImpl : public toonim::ITnImSdkCallback {
 
-	Nan::CopyablePersistentTraits<v8::Function>::CopyablePersistent _cb;
+	uv_async_t uv_async;
 
 public:
 	CTNImsdkCallbackImpl(const Nan::FunctionCallbackInfo<v8::Value>& info) {
-		_cb = Nan::Persistent<v8::Function>(info[0].As<v8::Function>());
+		uv_async_init(uv_default_loop(), &uv_async, node_event_process);
 	}
 
 	virtual void netStatusChanged(int32_t status) {
@@ -24,22 +35,27 @@ public:
 	}
 
 	virtual void loginResp(int32_t code, vector<int32_t>& contentTypes) {
-		TNMPLOG("loginResp code:" << code);
 		if (code == 0) {
+			//eventSyncMutex.lock();
+			uv_async.data = "loginResp";
+			TNMPLOG("===============:" << uv_async.data);
+			uv_async_send(&uv_async);
 		}
 		//TNC_CHECK_EQ(1, 1, "setCallback success");
 		//TNC_CHECK_EQ(1, 1, "login success");
+	}
 
-		auto isolate = Isolate::GetCurrent();
-		auto context = isolate->GetCurrentContext(); // crashes nwjs here
-		auto global = context->Global();
+	static void node_event_process(uv_async_t *handle){
 
-		const int argc = 1;
-		Handle<Value> argv[argc];
-		argv[0] = Number::New(isolate, code);
+		string p = (char*)handle->data;
+		p = "tmail_callback(\"" + p + "\")";
+		TNMPLOG("================" << p);
+		//eventSyncMutex.unlock();
 
-		auto fn = Local<Function>::New(isolate, _cb);
-		fn->Call(global, argc, argv);
+		Isolate* isolate = Isolate::GetCurrent();
+		Nan::MaybeLocal<Nan::BoundScript> script =
+				Nan::CompileScript(v8::String::NewFromUtf8(isolate, p.c_str()));
+		Nan::RunScript(script.ToLocalChecked());
 	}
 
 	virtual void kickOut() {
@@ -152,20 +168,15 @@ string getStringFromInfo(v8::Local<v8::Object> jsonObj, v8::Local<v8::String> pr
 
 CTNClientInfo unpack_CTNClientInfo(const Nan::FunctionCallbackInfo<v8::Value>& args) {
 	/*
-	clientInfo.clientId = "123456";//clientId
-	clientInfo.deviceId = "456";//deviceId
-	clientInfo.pushToken = "fjdlsajfld";//pushToken
-	clientInfo.deviceType = 1;//iOS
-	clientInfo.appPath = "/Users/ouasahikage/code/TNIMSDK/test/";
-	clientInfo.pushServiceType = 1;//ios push，android
-
-	//企业证书，还是appstore证书
-	clientInfo.apnsType = 1;
-	clientInfo.version = "3.7.0";
-
-	clientInfo.feedList.push_back("123123");
-	clientInfo.feedList.push_back("321321");
-	clientInfo.feedList.push_back("133133");
+		clientId: "sjf1ac2z3e3z@syswin.com",
+		deviceId: "40-8D-5C-11-F7-A9",
+		pushToken: "fjdlsajfld",
+		deviceType: 3,
+		keyPath: "C:\Users\Administrator\AppData\Roaming\temail\000000\tmail\",
+		appPath: "D:\temail\",
+		pushServiceType:1,
+		apnsType: 1,
+		version: "0.2.0"
     */
 	CTNClientInfo info;
 	v8::Local<v8::Object> jsonObj = args[0]->ToObject();
@@ -175,18 +186,10 @@ CTNClientInfo unpack_CTNClientInfo(const Nan::FunctionCallbackInfo<v8::Value>& a
 	info.deviceType = getInt32FromInfo(jsonObj, Nan::New("deviceType").ToLocalChecked());
 	info.clientId = getStringFromInfo(jsonObj, Nan::New("clientId").ToLocalChecked());
 	info.deviceId = getStringFromInfo(jsonObj, Nan::New("deviceId").ToLocalChecked());
-	info.appPath = "C:\Users\Administrator\AppData\Roaming\temail\000000\tmail"; //getStringFromInfo(jsonObj, Nan::New("appPath").ToLocalChecked());
+	info.appPath = getStringFromInfo(jsonObj, Nan::New("appPath").ToLocalChecked());
 	info.keyPath = getStringFromInfo(jsonObj, Nan::New("keyPath").ToLocalChecked());
+	info.version = getStringFromInfo(jsonObj, Nan::New("version").ToLocalChecked());
 
-	/*Handle<Array> array =  Handle<Array>::Cast(
-	info_obj->Get(
-	String::NewFromUtf8(isolate,"samples")));
-
-	int sample_count = array->Length();
-	for ( int i = 0; i < sample_count; i++ ) {
-	sample s = unpack_sample(isolate, Handle<Object>::Cast(array->Get(i)));
-	info.feedList.push_back(s);
-	}*/
 	return info;
 }
 
@@ -199,12 +202,22 @@ void setCallback(const Nan::FunctionCallbackInfo<v8::Value>& info) {//添加对接回
 
 void initIm(const Nan::FunctionCallbackInfo<v8::Value>& info) { //初始化imsdk
 	toonim::appendHttpRouter("api.groupchat.systoon.com", "http://t.email");
-	toonim::appendHttpRouter("api.im.systoon.com", "http://124.251.118.82:10001");
+	toonim::appendHttpRouter("api.tcard.systoon.com", "http://t.email/card");
+	//toonim::appendHttpRouter("api.im.systoon.com", "124.251.118.82:10001");
 	toonim::appendHttpRouter("api.tmail.systoon.com", "http://t.email");
+	toonim::appendHttpRouter("api.tpushregister.systoon.com", "http://t.email");
+	toonim::appendHttpRouter("api.tpush.systoon.com", "http://t.email:11001");
+	toonim::appendHttpRouter("api.tmailvframe.systoon.com", "http://tmail.systoon.com/vframeByUrl");
+	toonim::appendHttpRouter("api.tmailcloud.systoon.com", "http://t.email/cloudstorage");
 	gClientInfo = unpack_CTNClientInfo(info);
+	std::string logPath = "D:/temail/log/";
+	toonim::initLog(logPath.c_str());
+	std::string dBPath = "D:/temail/DB/";
+	toonim::initImDB(gClientInfo.clientId.c_str(), dBPath.c_str());
 	imsdk = toonim::initIm(gClientInfo);
+	imsdk->addHostInfo("124.251.118.82", 10001, false);
 	setCallback(info);
-	info.GetReturnValue().Set(Nan::New<String>(gClientInfo.appPath).ToLocalChecked());
+	info.GetReturnValue().Set(Nan::New<String>(gClientInfo.clientId).ToLocalChecked());
 }
 
 void addNoticeFilter(const Nan::FunctionCallbackInfo<v8::Value>& info) {//添加过滤通知
@@ -225,23 +238,19 @@ void addHostInfo(const Nan::FunctionCallbackInfo<v8::Value>& info) {//添加服务器
 	}
 }
 
-void login(const Nan::FunctionCallbackInfo<v8::Value>& info) {//登录
-	gClientInfo.username = "13777777777";
-
+void login(const Nan::FunctionCallbackInfo<v8::Value>& info) {
 	if (imsdk == nullptr) {
-		info.GetReturnValue().Set(Nan::New<String>("login imsdk is null!!!!").ToLocalChecked());
 		TNMPLOG("login imsdk is null!!!!");
 		return;
 	}
 
 	if (!gClientInfo.isValid()) {
-		info.GetReturnValue().Set(Nan::New<String>("_clientInfo is invalid").ToLocalChecked());
 		TNMPLOG("_clientInfo is invalid,don't connect:" << gClientInfo.clientId << " myfeed size:" << gClientInfo.feedList.size());
 		return;
 	}
-
-	imsdk->login(gClientInfo.username.c_str());
-	info.GetReturnValue().Set(Nan::New<String>(gClientInfo.username).ToLocalChecked());
+	TNMPLOG("login imsdk");
+	imsdk->login(gClientInfo.clientId.c_str());
+	info.GetReturnValue().Set(Nan::New<String>(gClientInfo.clientId).ToLocalChecked());
 }
 
 void sendMessage(const Nan::FunctionCallbackInfo<v8::Value>& info) {//发送消息
@@ -250,11 +259,12 @@ void sendMessage(const Nan::FunctionCallbackInfo<v8::Value>& info) {//发送消息
 	//message.type = CTNIMMessageTypeChat;
 	message.fromId = gClientInfo.clientId;
 	//message.fromClientId = "2733405";
-	message.toId = "c_305309";
+	v8::Local<v8::Object> jsonObj = info[0]->ToObject();
+	message.toId = getStringFromInfo(jsonObj, Nan::New("toId").ToLocalChecked());
 	//message.toClientId = "305092";
 	message.contentType = CTNChatTypeText;
 
-	message.content = "{\"text\":\"message.from this is a test 1 \"}";
+	message.content = getStringFromInfo(jsonObj, Nan::New("content").ToLocalChecked());
 
 	if (imsdk == nullptr) {
 		TNMPLOG("sendMessage imsdk is null!!!!");
